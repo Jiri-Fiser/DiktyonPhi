@@ -12,16 +12,16 @@ class GraphType(enum.Enum):
 class Edge:
     """Representation of an edge between two nodes with associated attributes."""
 
-    def __init__(self, src_id: Hashable, dest_id: Hashable, attrs: Dict[str, Any]):
+    def __init__(self, src: 'Node', dest: 'Node', attrs: Dict[str, Any]):
         """
         Initialize an edge from src_id to dest_id with given attributes.
 
-        :param src_id: Source node identifier.
-        :param dest_id: Destination node identifier.
+        :param src: Source node identifier.
+        :param dest: Destination node identifier.
         :param attrs: Dictionary of edge attributes.
         """
-        self.src_id = src_id
-        self.dest_id = dest_id
+        self.src = src
+        self.dest = dest
         self._attrs = attrs
 
     def __getitem__(self, key: str) -> Any:
@@ -33,13 +33,13 @@ class Edge:
         self._attrs[key] = val
 
     def __repr__(self):
-        return f"Edge({self.src_id}→{self.dest_id}, {self._attrs})"
+        return f"Edge({self.src.id}→{self.dest.id}, {self._attrs})"
 
 
 class Node:
     """Representation of a graph node with attributes and outgoing edges."""
 
-    def __init__(self, node_id: Hashable, attrs: Dict[str, Any]):
+    def __init__(self, graph: 'Graph', node_id: Hashable, attrs: Dict[str, Any]):
         """
         Initialize a node with a given identifier and attributes.
 
@@ -47,6 +47,7 @@ class Node:
         :param attrs: Dictionary of node attributes.
         """
         self.id = node_id
+        self.graph = graph
         self._attrs = attrs
         self._neighbors: Dict[Hashable, Dict[str, Any]] = {}
 
@@ -58,7 +59,7 @@ class Node:
         """Set node attribute by key."""
         self._attrs[item] = val
 
-    def to(self, dest_id: Hashable) -> Edge:
+    def to(self, dest: Hashable | 'Node') -> Edge:
         """
         Get the edge from this node to the specified destination node.
 
@@ -66,23 +67,36 @@ class Node:
         :return: Edge instance representing the connection.
         :raises ValueError: If no such edge exists.
         """
+        dest_id = dest.id if isinstance(dest, Node) else dest
         if dest_id not in self._neighbors:
             raise ValueError(f"No edge from {self.id} to {dest_id}")
-        return Edge(self.id, dest_id, self._neighbors[dest_id])
+        return Edge(self, self.graph.node(dest_id), self._neighbors[dest_id])
 
-    def connected_to(self, dest_id: Hashable) -> bool:
+    def connect_to(self,  dest: Hashable | 'Node', attrs: Optional[Dict[str, Any]] = None):
+        dest = dest if isinstance(dest, Node) else self.graph.node(dest)
+        assert dest.graph == self.graph, f"Destination node {dest.id} is not in the same graph"
+        assert dest.id in self.graph, f"Destination node {dest.id} is not in graph"
+        self.graph.add_edge(self.id, dest.id, attrs if attrs is not None else {})
+
+    def is_edge_to(self, dest: Hashable | 'Node') -> bool:
         """
         Check if this node has an edge to the given node.
 
         :param dest_id: ID of the target node.
         :return: True if edge exists, False otherwise.
         """
+        dest_id = dest.id if isinstance(dest, Node) else dest
         return dest_id in self._neighbors
 
     @property
-    def neighbors(self) -> Iterator[Hashable]:
+    def neighbor_ids(self) -> Iterator[Hashable]:
         """Return an iterator over IDs of neighboring nodes."""
         return iter(self._neighbors)
+
+    @property
+    def neighbors_nodes(self) -> Iterator['Node']:
+        for id in self.neighbor_ids:
+            yield self.graph.node(id)
 
     @property
     def out_degree(self) -> int:
@@ -91,6 +105,14 @@ class Node:
 
     def __repr__(self):
         return f"Node({self.id}, {self._attrs})"
+
+    def __eq__(self, other):
+        if not isinstance(other, Node):
+            return False
+        return self.id == other.id
+
+    def __hash__(self):
+        return hash(self.id)
 
 
 class Graph:
@@ -105,7 +127,7 @@ class Graph:
         self.type = type
         self._nodes: Dict[Hashable, Node] = {}
 
-    def add_node(self, node_id: Hashable, attrs: Optional[Dict[str, Any]] = None) -> None:
+    def add_node(self, node_id: Hashable, attrs: Optional[Dict[str, Any]] = None) -> Node:
         """
         Add a new node to the graph.
 
@@ -115,7 +137,7 @@ class Graph:
         """
         if node_id in self._nodes:
             raise ValueError(f"Node {node_id} already exists")
-        self._create_node(node_id, attrs if attrs is not None else {})
+        return self._create_node(node_id, attrs if attrs is not None else {})
 
     def add_edge(self, src_id: Hashable, dst_id: Hashable, attrs: Optional[Dict[str, Any]] = None) -> None:
         """
@@ -156,9 +178,11 @@ class Graph:
         """
         return self._nodes[node_id]
 
-    def _create_node(self, node_id: Hashable, attrs: Optional[Dict[str, Any]] = None) -> None:
+    def _create_node(self, node_id: Hashable, attrs: Optional[Dict[str, Any]] = None) -> Node:
         """Internal method to create a node."""
-        self._nodes[node_id] = Node(node_id, attrs)
+        node = Node(self, node_id, attrs)
+        self._nodes[node_id] = Node(self, node_id, attrs)
+        return node
 
     def _set_edge(self, src_id: Hashable, target_id: Hashable, attrs: Dict[str, Any]) -> None:
         """Internal method to create a directed edge."""
@@ -194,7 +218,7 @@ class Graph:
         seen = set()
         for node_id in self:
             node = self.node(node_id)
-            for dst_id in node.neighbors:
+            for dst_id in node.neighbor_ids:
                 if self.type == GraphType.UNDIRECTED and (dst_id, node_id) in seen:
                     continue
                 seen.add((node_id, dst_id))
@@ -206,7 +230,7 @@ class Graph:
         return "\n".join(lines)
 
 
-    def export_to_png(self, filename: str) -> None:
+    def export_to_png(self, filename: str = None) -> None:
         """
         Export the graph to a PNG file using Graphviz (dot), via pipe.
 
@@ -224,7 +248,21 @@ class Graph:
         except subprocess.CalledProcessError as e:
             raise RuntimeError(f"Graphviz 'dot' command failed: {e}") from e
 
-
+    def to_image(self):
+        from IPython.display import SVG
+        dot_data = self.to_dot()
+        try:
+            process = subprocess.run(
+                ['dot', '-Tsvg'],
+                input=dot_data,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=True
+            )
+            return SVG(data=process.stdout)
+        except subprocess.CalledProcessError as e:
+            raise RuntimeError(f"Graphviz 'dot' command failed: {e} with stderr: {e.stderr.decode('utf-8')}") from e
 
 if __name__ == "__main__":
     # Create a directed graph
@@ -256,9 +294,9 @@ if __name__ == "__main__":
     for node_id in g:
         node = g.node(node_id)
         print(f"Node {node.id}: label={node['label']}, out_degree={node.out_degree}")
-        for neighbor_id in node.neighbors:
+        for neighbor_id in node.neighbor_ids:
             edge = node.to(neighbor_id)
             print(f"  → {neighbor_id} (weight={edge['weight']}, type={edge['type']})")
 
     print("-----------------")
-    g.export_to_png("out.png")
+    print(g.to_image())
