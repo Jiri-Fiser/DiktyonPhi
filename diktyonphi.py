@@ -1,6 +1,6 @@
 import enum
 import subprocess
-from typing import Dict, Hashable, Any, Optional, Iterator
+from typing import Dict, Hashable, Any, Optional, Iterator, Tuple
 
 
 class GraphType(enum.Enum):
@@ -139,7 +139,8 @@ class Graph:
             raise ValueError(f"Node {node_id} already exists")
         return self._create_node(node_id, attrs if attrs is not None else {})
 
-    def add_edge(self, src_id: Hashable, dst_id: Hashable, attrs: Optional[Dict[str, Any]] = None) -> None:
+    def add_edge(self, src_id: Hashable, dst_id: Hashable,
+                 attrs: Optional[Dict[str, Any]] = None) -> Tuple[Node, Node]:
         """
         Add a new edge to the graph. Nodes are created automatically if missing.
 
@@ -148,6 +149,7 @@ class Graph:
         :param attrs: Optional dictionary of edge attributes.
         :raises ValueError: If the edge already exists.
         """
+        attrs = attrs if attrs is not None else {}
         if src_id not in self._nodes:
             self._create_node(src_id, {})
         if dst_id not in self._nodes:
@@ -155,6 +157,7 @@ class Graph:
         self._set_edge(src_id, dst_id, attrs)
         if self.type == GraphType.UNDIRECTED:
             self._set_edge(dst_id, src_id, attrs)
+        return (self._nodes[src_id], self._nodes[dst_id])
 
     def __contains__(self, node_id: Hashable) -> bool:
         """Check whether a node exists in the graph."""
@@ -164,9 +167,12 @@ class Graph:
         """Return the number of nodes in the graph."""
         return len(self._nodes)
 
-    def __iter__(self) -> Iterator[Hashable]:
+    def __iter__(self) -> Iterator[Node]:
         """Iterate over node IDs in the graph."""
-        return iter(self._nodes)
+        return iter(self._nodes.values())
+
+    def node_ids(self) -> Iterator[Hashable]:
+        return iter(self._nodes.keys())
 
     def node(self, node_id: Hashable) -> Node:
         """
@@ -209,14 +215,14 @@ class Graph:
         lines.append(f'digraph {name} {{' if self.type == GraphType.DIRECTED else f'graph {name} {{')
 
         # Nodes
-        for node_id in self:
+        for node_id in self.node_ids():
             node = self.node(node_id)
             label = node[label_attr] if label_attr in node._attrs else str(node_id)
             lines.append(f'    "{node_id}" [label="{label}"];')
 
         # Edges
         seen = set()
-        for node_id in self:
+        for node_id in self.node_ids():
             node = self.node(node_id)
             for dst_id in node.neighbor_ids:
                 if self.type == GraphType.UNDIRECTED and (dst_id, node_id) in seen:
@@ -291,7 +297,7 @@ if __name__ == "__main__":
 
     # Iterate through the graph
     print("\nGraph structure:")
-    for node_id in g:
+    for node_id in g.node_ids():
         node = g.node(node_id)
         print(f"Node {node.id}: label={node['label']}, out_degree={node.out_degree}")
         for neighbor_id in node.neighbor_ids:
