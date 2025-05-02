@@ -94,7 +94,7 @@ class Node:
         return iter(self._neighbors)
 
     @property
-    def neighbors_nodes(self) -> Iterator['Node']:
+    def neighbor_nodes(self) -> Iterator['Node']:
         for id in self.neighbor_ids:
             yield self.graph.node(id)
 
@@ -187,7 +187,7 @@ class Graph:
     def _create_node(self, node_id: Hashable, attrs: Optional[Dict[str, Any]] = None) -> Node:
         """Internal method to create a node."""
         node = Node(self, node_id, attrs)
-        self._nodes[node_id] = Node(self, node_id, attrs)
+        self._nodes[node_id] = node
         return node
 
     def _set_edge(self, src_id: Hashable, target_id: Hashable, attrs: Dict[str, Any]) -> None:
